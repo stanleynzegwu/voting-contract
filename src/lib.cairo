@@ -5,11 +5,13 @@ pub trait IVote<TContractState> {
     fn add_candidate(ref self: TContractState, candidate_id: u64);
     fn get_winner(self: @TContractState) -> u64; // Returns winning candidate_id
     fn calculate_votes(self: @TContractState) -> Array<(u64, u64)>; // Returns (id, votes)
+    fn get_election_state(self: @TContractState) -> bool;
+    fn get_candidates_length(self: @TContractState) -> u64;
 }
 
 /// Simple contract for voting.
 #[starknet::contract]
-mod Vote {
+pub mod Vote {
     use starknet::storage::{
         Map, MutableVecTrait, StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess,
         Vec, VecTrait,
@@ -33,6 +35,25 @@ mod Vote {
         candidates: Vec<Candidate>,
     }
 
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    pub enum Event {
+        Voted: Voted,
+        Candidate_Added: Candidate_Added,
+        Election_Ended: Election_Ended,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct Voted {
+        pub voter: ContractAddress,
+    }
+    #[derive(Drop, starknet::Event)]
+    pub struct Candidate_Added {
+        pub candidate_id: u64,
+    }
+    #[derive(Drop, starknet::Event)]
+    pub struct Election_Ended {}
+
     #[constructor]
     fn constructor(ref self: ContractState, admin: ContractAddress) {
         self.admin.write(admin);
@@ -44,6 +65,7 @@ mod Vote {
             only_admin(@self);
 
             self.election_started.write(false);
+            self.emit(Election_Ended {});
         }
 
         fn vote(ref self: ContractState, candidate_id: u64) {
@@ -73,6 +95,7 @@ mod Vote {
             assert(found, 'candidate not found');
 
             self.voters.entry(caller).write(true);
+            self.emit(Voted { voter: get_caller_address() });
         }
 
 
@@ -98,12 +121,21 @@ mod Vote {
             if self.candidates.len() == MAX_CANDIDATES {
                 self.election_started.write(true);
             }
+
+            self.emit(Candidate_Added { candidate_id });
         }
 
         fn calculate_votes(self: @ContractState) -> Array<(u64, u64)> {
             get_results(self)
         }
 
+        ///GETTERS
+        /// Returns the candidate_id with the highest vote count.
+        ///
+        /// Behavior:
+        /// - The candidate with the strictly highest number of votes is selected.
+        /// - In case of a tie, the first candidate with the highest vote count is returned.
+        /// - Can only be called after the election has ended.
         fn get_winner(self: @ContractState) -> u64 {
             assert(!self.election_started.read(), 'election still ongoing');
 
@@ -121,7 +153,16 @@ mod Vote {
                 i += 1;
             }
 
+            assert(max_votes > 0, 'no votes cast');
             winner_id
+        }
+
+        fn get_election_state(self: @ContractState) -> bool {
+            self.election_started.read()
+        }
+
+        fn get_candidates_length(self: @ContractState) -> u64 {
+            self.candidates.len()
         }
     }
 
