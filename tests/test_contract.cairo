@@ -6,6 +6,12 @@ use starknet::{ContractAddress, SyscallResultTrait};
 use vote::Vote::{Candidate_Added, Election_Ended, Event, Voted};
 use vote::{IVoteDispatcher, IVoteDispatcherTrait};
 
+const candidate1_id: u64 = 1;
+const candidate2_id: u64 = 2;
+const candidate3_id: u64 = 3;
+const candidate4_id: u64 = 4;
+const candidate5_id: u64 = 5;
+
 fn deploy_contract(name: ByteArray) -> (ContractAddress, ContractAddress) {
     let contract = declare(name).unwrap_syscall().contract_class();
     let ADMIN: ContractAddress = 'admin'.try_into().unwrap();
@@ -36,7 +42,6 @@ fn test_no_initial_candidate() {
 
 #[test]
 fn test_admin_can_add_candidate() {
-    let candidate_id = 1;
     let (contract_address, ADMIN) = deploy_contract("Vote");
 
     let dispatcher = IVoteDispatcher { contract_address };
@@ -44,13 +49,13 @@ fn test_admin_can_add_candidate() {
     //ADD CANDIDATE AND ENSURE IT EMITS THE RIGHT EVENT
     start_cheat_caller_address(dispatcher.contract_address, ADMIN);
     let mut spy = spy_events();
-    dispatcher.add_candidate(candidate_id);
+    dispatcher.add_candidate(candidate1_id);
     spy
         .assert_emitted(
             @array![
                 (
                     dispatcher.contract_address,
-                    Event::Candidate_Added(Candidate_Added { candidate_id: candidate_id }),
+                    Event::Candidate_Added(Candidate_Added { candidate_id: candidate1_id }),
                 ),
             ],
         );
@@ -68,7 +73,7 @@ fn test_only_admin_can_add_candidate() {
     let non_admin: ContractAddress = 'non_admin'.try_into().unwrap();
 
     start_cheat_caller_address(dispatcher.contract_address, non_admin);
-    dispatcher.add_candidate(1);
+    dispatcher.add_candidate(candidate1_id);
 }
 
 #[test]
@@ -98,7 +103,7 @@ fn test_user_can_vote() {
     //USER VOTE & Expect Emit
     start_cheat_caller_address(dispatcher.contract_address, user);
     let mut spy = spy_events();
-    dispatcher.vote(1);
+    dispatcher.vote(candidate1_id);
     spy.assert_emitted(@array![(dispatcher.contract_address, Event::Voted(Voted { voter: user }))]);
 }
 
@@ -112,11 +117,28 @@ fn test_voter_cannot_vote_if_election_not_started() {
 
     //Add one candidate
     start_cheat_caller_address(dispatcher.contract_address, ADMIN);
-    dispatcher.add_candidate(1);
+    dispatcher.add_candidate(candidate1_id);
     stop_cheat_caller_address(dispatcher.contract_address);
 
     start_cheat_caller_address(dispatcher.contract_address, voter);
-    dispatcher.vote(1);
+    dispatcher.vote(candidate1_id);
+}
+
+#[test]
+#[should_panic(expected: 'candidate not found')]
+fn test_voter_cannot_vote_if_wrong_candidate_id() {
+    let non_existent_candidate_id = 10;
+    let voter: ContractAddress = 'voter'.try_into().unwrap();
+    let (contract_address, ADMIN) = deploy_contract("Vote");
+
+    let dispatcher = IVoteDispatcher { contract_address };
+
+    //ADD CANDIDATES
+    add_candidates(dispatcher, ADMIN);
+
+    //Voter votes with the wrong candidate id
+    start_cheat_caller_address(dispatcher.contract_address, voter);
+    dispatcher.vote(non_existent_candidate_id);
 }
 #[test]
 #[should_panic(expected: 'candidate exists')]
@@ -127,8 +149,8 @@ fn test_admin_cannot_add_a_candidate_more_than_once() {
 
     //Add same candidate twice and revert
     start_cheat_caller_address(dispatcher.contract_address, ADMIN);
-    dispatcher.add_candidate(1);
-    dispatcher.add_candidate(1);
+    dispatcher.add_candidate(candidate1_id);
+    dispatcher.add_candidate(candidate1_id);
 }
 
 #[test]
@@ -144,8 +166,8 @@ fn test_voter_can_only_vote_once() {
 
     //Voter try to vote more than once
     start_cheat_caller_address(dispatcher.contract_address, voter);
-    dispatcher.vote(1);
-    dispatcher.vote(1);
+    dispatcher.vote(candidate1_id);
+    dispatcher.vote(candidate1_id);
 }
 
 #[test]
@@ -178,7 +200,7 @@ fn test_admin_can_end_election() {
 fn test_winner_is_correct() {
     let (contract_address, ADMIN) = deploy_contract("Vote");
     let dispatcher = IVoteDispatcher { contract_address };
-    let expected_winner_id = 1;
+    let expected_winner_id = candidate1_id;
 
     //ADD CANDIDATES
     add_candidates(dispatcher, ADMIN);
@@ -210,14 +232,37 @@ fn test_no_vote_cast_and_election_ended() {
     dispatcher.get_winner();
 }
 
+#[test]
+fn test_calculates_right_votes() {
+    let (contract_address, ADMIN) = deploy_contract("Vote");
+    let dispatcher = IVoteDispatcher { contract_address };
+
+    //ADD CANDIDATES
+    add_candidates(dispatcher, ADMIN);
+    //Voters cast their votes
+    multiple_voters__cast_vote(dispatcher);
+    //Admin Ends Election
+    start_cheat_caller_address(dispatcher.contract_address, ADMIN);
+    dispatcher.end_election();
+
+    //calculate_votes
+    let result = dispatcher.calculate_votes();
+    //array of tuple that has the candidate_id & candidate vote count
+    let expectedResult: Array<(u64, u64)> = array![
+        (candidate1_id, 3), (candidate2_id, 2), (candidate3_id, 1), (candidate4_id, 1),
+        (candidate5_id, 0),
+    ];
+    assert(result == expectedResult, 'wrong votes calculation');
+}
+
 
 fn add_candidates(contract: IVoteDispatcher, admin: ContractAddress) {
     start_cheat_caller_address(contract.contract_address, admin);
-    contract.add_candidate(1);
-    contract.add_candidate(2);
-    contract.add_candidate(3);
-    contract.add_candidate(4);
-    contract.add_candidate(5);
+    contract.add_candidate(candidate1_id);
+    contract.add_candidate(candidate2_id);
+    contract.add_candidate(candidate3_id);
+    contract.add_candidate(candidate4_id);
+    contract.add_candidate(candidate5_id);
     stop_cheat_caller_address(contract.contract_address);
 }
 
@@ -231,24 +276,24 @@ fn multiple_voters__cast_vote(contract: IVoteDispatcher) {
     let voter7: ContractAddress = 'voter7'.try_into().unwrap();
 
     start_cheat_caller_address(contract.contract_address, voter1);
-    contract.vote(1);
+    contract.vote(candidate1_id);
     stop_cheat_caller_address(contract.contract_address);
     start_cheat_caller_address(contract.contract_address, voter2);
-    contract.vote(1);
+    contract.vote(candidate1_id);
     stop_cheat_caller_address(contract.contract_address);
     start_cheat_caller_address(contract.contract_address, voter3);
-    contract.vote(1);
+    contract.vote(candidate1_id);
     stop_cheat_caller_address(contract.contract_address);
     start_cheat_caller_address(contract.contract_address, voter4);
-    contract.vote(3);
+    contract.vote(candidate3_id);
     stop_cheat_caller_address(contract.contract_address);
     start_cheat_caller_address(contract.contract_address, voter5);
-    contract.vote(4);
+    contract.vote(candidate4_id);
     stop_cheat_caller_address(contract.contract_address);
     start_cheat_caller_address(contract.contract_address, voter6);
-    contract.vote(2);
+    contract.vote(candidate2_id);
     stop_cheat_caller_address(contract.contract_address);
     start_cheat_caller_address(contract.contract_address, voter7);
-    contract.vote(2);
+    contract.vote(candidate2_id);
     stop_cheat_caller_address(contract.contract_address);
 }

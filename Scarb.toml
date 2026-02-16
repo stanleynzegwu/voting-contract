@@ -21,6 +21,12 @@ test = "snforge test"
 [tool.scarb]
 allow-prebuilt-plugins = ["snforge_std"]
 
+# needed to run snforge test --coverage
+[profile.dev.cairo]
+unstable-add-statements-functions-debug-info = true
+unstable-add-statements-code-locations-debug-info = true
+inlining-strategy = "avoid"
+
 # Visit https://foundry-rs.github.io/starknet-foundry/appendix/scarb-toml.html for more information
 
 # [tool.snforge]                                             # Define `snforge` tool section
